@@ -46,6 +46,12 @@
       color: #ffffff;
       cursor: pointer;
     }
+    #saldoDisplay {
+      padding: 10px;
+      font-size: 1em;
+      color: #ffffff;
+      font-weight: bold;
+    }
     .table-container {
       overflow-x: auto;
       border-radius: 8px;
@@ -99,14 +105,25 @@
     .devuelto { background-color: #f59e0b; color: white; }
     .nulo { background-color: #6b7280; color: white; }
     .resultado-ganado { background-color: #10b981 !important; }
-.resultado-perdido { background-color: #ef4444 !important; }
-.resultado-devuelto { background-color: #f59e0b !important; }
-.resultado-nulo { background-color: #6b7280 !important; }
+    .resultado-perdido { background-color: #ef4444 !important; }
+    .resultado-devuelto { background-color: #f59e0b !important; }
+    .resultado-nulo { background-color: #6b7280 !important; }
     #nextUpdate {
       text-align: center;
       margin-top: 20px;
       font-size: 1em;
       color: #a3a3a3;
+    }
+    .undo-btn {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-size: 0.8em;
+      cursor: pointer;
+      margin-left: 5px;
+      display: none;
     }
     @media (max-width: 768px) {
       .hide-on-mobile {
@@ -121,7 +138,7 @@
     <div class="input-container">
       <input type="number" id="bankInput" placeholder="Ingrese su bank">
       <button id="startBotBtn" disabled>Iniciar Bot</button>
-      <span id="saldoDisplay" style="margin-left: 10px;">Saldo: $0.00</span> <!-- Campo de saldo -->
+      <span id="saldoDisplay">Saldo: $0.00</span>
     </div>
     <div id="nextUpdate"></div>
     
@@ -163,7 +180,6 @@
             <th></th>
           </tr>
         </thead>
-        
         <tbody>
           <!-- Aquí se insertarán los datos desde el script -->
         </tbody>
@@ -173,24 +189,51 @@
 
   <script>
     let bank = 0;
+    let currentBalance = 0;
+    let betHistory = {};
+
 
     document.getElementById('bankInput').addEventListener('change', (e) => {
-    bank = parseFloat(e.target.value);
-    localStorage.setItem('bank', bank);
-    document.getElementById('startBotBtn').disabled = !bank;
-    updateTable();
-  });
-
-    // Cargar el bank guardado al iniciar la página
-  window.addEventListener('load', () => {
-    const savedBank = localStorage.getItem('bank');
-    if (savedBank) {
-      bank = parseFloat(savedBank);
-      document.getElementById('bankInput').value = bank;
-      document.getElementById('startBotBtn').disabled = false;
+      bank = parseFloat(e.target.value);
+      currentBalance = bank; // Inicializar el saldo actual con el bank inicial
+      localStorage.setItem('bank', bank);
+      localStorage.setItem('currentBalance', currentBalance);
+      document.getElementById('startBotBtn').disabled = !bank;
+      updateSaldoDisplay();
       updateTable();
+    });
+
+    // Cargar el bank y saldo guardado al iniciar la página
+    window.addEventListener('load', () => {
+      const savedBank = localStorage.getItem('bank');
+      const savedBalance = localStorage.getItem('currentBalance');
+      if (savedBank) {
+        bank = parseFloat(savedBank);
+        currentBalance = savedBalance ? parseFloat(savedBalance) : bank;
+        document.getElementById('bankInput').value = bank;
+        document.getElementById('startBotBtn').disabled = false;
+        updateSaldoDisplay();
+        updateTable();
+      }
+    });
+
+    function updateSaldoDisplay() {
+      document.getElementById('saldoDisplay').textContent = `Saldo: $${currentBalance.toFixed(2)}`;
     }
-  });
+
+    function calculateBalanceChange(resultado, importe, cuota) {
+      switch(resultado) {
+        case 'ganado':
+          return importe * (cuota - 1); // Ganancia neta (sin contar la apuesta original)
+        case 'perdido':
+          return -importe; // Pérdida del importe apostado
+        case 'devuelto':
+        case 'nulo':
+          return 0; // Sin cambio en el saldo
+        default:
+          return 0;
+      }
+    }
 
     let sortOrder = 'asc';
     let sortColumn = '';
@@ -222,14 +265,14 @@
         estado: document.getElementById('filter-estado').value,
         resultado: document.getElementById('filter-resultado').value
       };
+      
       fetch(`/api/valuebets?sortColumn=${sortColumn}&sortOrder=${sortOrder}&filters=${JSON.stringify(filterParams)}`)
-    .then(response => response.json())
-    .then(data => {
-      const tableBody = document.getElementById('valuebetsTable').querySelector('tbody');
-      tableBody.innerHTML = '';
+        .then(response => response.json())
+        .then(data => {
+          const tableBody = document.getElementById('valuebetsTable').querySelector('tbody');
+          tableBody.innerHTML = '';
           
           const now = new Date();
-          console.log('Hora actual:', now);
 
           data.forEach(bet => {
             const row = document.createElement('tr');
@@ -237,11 +280,9 @@
             const [day, month, year] = bet.fechaEvento.split('/');
             const [hours, minutes] = bet.horaEvento.split(':');
             const eventDateTime = new Date(year, parseInt(month) - 1, day, hours, minutes);
-            console.log('Evento:', bet.evento, 'Fecha y hora del evento:', eventDateTime);
 
             if (now >= eventDateTime) {
               row.classList.add('en-juego');
-              console.log('Evento en juego:', bet.evento);
             } else if (bet.estado === 'finalizado') {
               row.classList.add('finalizado');
             }
@@ -250,36 +291,35 @@
               row.classList.add(`resultado-${bet.resultado}`);
             }
 
-            // Agrega el atributo `data-id` a cada fila
-        row.setAttribute('data-id', bet.id);
+            row.setAttribute('data-id', bet.id);
 
             const stakePercentage = parseFloat(bet.stake.replace('%', ''));
             const importeApostar = (bank * stakePercentage / 100).toFixed(2);
             
             row.innerHTML = `
-          <td>${bet.id}</td>
-          <td>${bet.casaDeApuestas}</td>
-          <td class="hide-on-mobile">${bet.tipoDeEvento}</td>
-          <td>${bet.fechaEvento}</td>
-          <td class="hide-on-mobile">${bet.horaEvento}</td>
-          <td>${bet.evento}</td>
-          <td>${bet.mercado}</td>
-          <td>${bet.cuota}</td>
-          <td>${bet.probabilidad}</td>
-          <td>${bet.excesoValor}</td>
-          <td class="hide-on-mobile">${bet.stake}</td>
-          <td>${importeApostar}</td>
-          <td>${bet.estado}</td>
-          <td>${bet.resultado || 'Pendiente'}</td>
-          <td><a href="${bet.link}" target="_blank">Ver</a></td>
-        `;
+              <td>${bet.id}</td>
+              <td>${bet.casaDeApuestas}</td>
+              <td class="hide-on-mobile">${bet.tipoDeEvento}</td>
+              <td>${bet.fechaEvento}</td>
+              <td class="hide-on-mobile">${bet.horaEvento}</td>
+              <td>${bet.evento}</td>
+              <td>${bet.mercado}</td>
+              <td>${bet.cuota}</td>
+              <td>${bet.probabilidad}</td>
+              <td>${bet.excesoValor}</td>
+              <td class="hide-on-mobile">${bet.stake}</td>
+              <td>${importeApostar}</td>
+              <td>${bet.estado}</td>
+              <td>${bet.resultado || 'Pendiente'}</td>
+              <td><a href="${bet.link}" target="_blank">Ver</a></td>
+            `;
             
             const resultadoCell = row.querySelector('td:nth-last-child(2)');
             resultadoCell.innerHTML = `
-              <button class="resultado-btn ganado" onclick="updateResult(${bet.id}, 'ganado')">G</button>
-              <button class="resultado-btn perdido" onclick="updateResult(${bet.id}, 'perdido')">P</button>
-              <button class="resultado-btn devuelto" onclick="updateResult(${bet.id}, 'devuelto')">D</button>
-              <button class="resultado-btn nulo" onclick="updateResult(${bet.id}, 'nulo')">N</button>
+              <button class="resultado-btn ganado" onclick="updateResult(${bet.id}, 'ganado', ${importeApostar}, ${bet.cuota})">G</button>
+              <button class="resultado-btn perdido" onclick="updateResult(${bet.id}, 'perdido', ${importeApostar}, ${bet.cuota})">P</button>
+              <button class="resultado-btn devuelto" onclick="updateResult(${bet.id}, 'devuelto', ${importeApostar}, ${bet.cuota})">D</button>
+              <button class="resultado-btn nulo" onclick="updateResult(${bet.id}, 'nulo', ${importeApostar}, ${bet.cuota})">N</button>
             `;
             
             tableBody.appendChild(row);
@@ -288,30 +328,87 @@
         .catch(error => console.error('Error al cargar los datos:', error));
     }
 
-    function updateResult(id, resultado) {
-  // Realiza la petición para actualizar el resultado en el servidor
-  fetch('/api/updateResult', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ id, resultado })
-  })
-  .then(response => {
-    if (!response.ok) throw new Error('Error al actualizar el resultado');
-    
-    // Obtén la fila correspondiente al ID
-    const row = document.querySelector(`#valuebetsTable tr[data-id="${id}"]`);
-    
-    // Remueve cualquier clase de resultado anterior
-    row.classList.remove('resultado-ganado', 'resultado-perdido', 'resultado-devuelto', 'resultado-nulo');
-    
-    // Agrega la nueva clase basada en el resultado
-    row.classList.add(`resultado-${resultado}`);
-  })
-  .catch(error => console.error('Error al actualizar el resultado:', error));
-}
+    function updateResult(id, resultado, importe, cuota) {
+      if (!betHistory[id]) {
+        betHistory[id] = {
+          previousResult: null,
+          previousBalance: currentBalance
+        };
+      }
+      fetch('/api/updateResult', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ id, resultado })
+      })
+      .then(response => {
+        if (!response.ok) throw new Error('Error al actualizar el resultado');
+        
+        const row = document.querySelector(`#valuebetsTable tr[data-id="${id}"]`);
+        row.classList.remove('resultado-ganado', 'resultado-perdido', 'resultado-devuelto', 'resultado-nulo');
+        row.classList.add(`resultado-${resultado}`);
 
+        // Actualizar el saldo
+        const balanceChange = calculateBalanceChange(resultado, importe, cuota);
+        currentBalance += balanceChange;
+        localStorage.setItem('currentBalance', currentBalance);
+        updateSaldoDisplay();
+
+        // Show undo button
+        const undoButton = row.querySelector('.undo-btn');
+        if (!undoButton) {
+          const newUndoButton = document.createElement('button');
+          newUndoButton.textContent = '↩';
+          newUndoButton.className = 'undo-btn';
+          newUndoButton.onclick = () => undoResult(id, importe, cuota);
+          row.querySelector('td:nth-last-child(2)').appendChild(newUndoButton);
+        } else {
+          undoButton.style.display = 'inline-block';
+        }
+      })
+      .catch(error => console.error('Error al actualizar el resultado:', error));
+    }
+
+    function undoResult(id, importe, cuota) {
+      if (betHistory[id]) {
+        const previousResult = betHistory[id].previousResult;
+        const previousBalance = betHistory[id].previousBalance;
+
+        // Revert the balance
+        currentBalance = previousBalance;
+        localStorage.setItem('currentBalance', currentBalance);
+        updateSaldoDisplay();
+
+        // Update the UI
+        const row = document.querySelector(`#valuebetsTable tr[data-id="${id}"]`);
+        row.classList.remove('resultado-ganado', 'resultado-perdido', 'resultado-devuelto', 'resultado-nulo');
+        if (previousResult) {
+          row.classList.add(`resultado-${previousResult}`);
+        }
+
+        // Hide the undo button
+        const undoButton = row.querySelector('.undo-btn');
+        if (undoButton) {
+          undoButton.style.display = 'none';
+        }
+
+        // Update the server (you may want to create a new API endpoint for this)
+        fetch('/api/undoResult', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ id, resultado: previousResult })
+        })
+        .then(response => {
+          if (!response.ok) throw new Error('Error al deshacer el resultado');
+          // Clear the history for this bet
+          delete betHistory[id];
+        })
+        .catch(error => console.error('Error al deshacer el resultado:', error));
+      }
+    }
 
     document.getElementById('startBotBtn').addEventListener('click', () => {
       fetch('/start-bot')
@@ -340,8 +437,8 @@
     }
 
     updateTable();
-    setInterval(updateTable, 60000); // Actualizar la tabla cada minuto
-    setInterval(updateNextUpdateTime, 60000); // Actualizar el tiempo de la próxima actualización cada minuto
+    setInterval(updateTable, 60000);
+    setInterval(updateNextUpdateTime, 60000);
   </script>
 </body>
 </html>
